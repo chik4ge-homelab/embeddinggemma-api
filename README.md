@@ -6,9 +6,17 @@ Immich-specific `/predict` contract.
 
 ## Runtime choice
 
-The service uses the official Sentence Transformers integration because the
-model is a unified text/image embedding model and vLLM's supported pooling
-model list does not include EmbeddingGemma 2. It loads
+The service uses the official Sentence Transformers integration for the
+current cluster. Current vLLM main/nightly includes an
+`EmbeddingGemma2Model` implementation and its official CPU image was tested
+as a candidate, so the older claim that vLLM does not support EmbeddingGemma 2
+is no longer correct. The candidate image
+`vllm/vllm-openai-cpu:nightly-x86_64` exited with code 132 (SIGILL) before
+binding its HTTP port on this cluster: every worker node exposes only
+x86-64-v2-era CPU flags and no AVX2/AVX512, while the official vLLM CPU build
+requires AVX2 at minimum. Stock vLLM is therefore not deployable on these
+nodes, and this service remains the selected implementation until the CPU
+ISA or execution environment changes. It loads
 `google/embeddinggemma-2` at the pinned revision
 `914f7f89142e33e77833254d9c9b90c3cef7303b` with:
 
