@@ -16,7 +16,10 @@ LOGGER = logging.getLogger("embeddinggemma_api")
 
 
 def _log(event: str, **fields: Any) -> None:
-    LOGGER.info(json.dumps({"event": event, **fields}, separators=(",", ":"), sort_keys=True))
+    print(
+        json.dumps({"event": event, **fields}, separators=(",", ":"), sort_keys=True),
+        flush=True,
+    )
 
 
 def _request_id(request: Request) -> str:
@@ -92,7 +95,7 @@ def create_app(service: EmbeddingService | None = None) -> FastAPI:
                 raise ValueError("model must be embeddinggemma-2")
             items = parse_input(body.get("input"), settings.max_image_bytes)
             input_type = body.get("input_type", "document")
-            vectors = await current.encode(items, input_type)
+            vectors, queue_wait_ms, inference_ms = await current.encode(items, input_type)
             result = {
                 "object": "list",
                 "model": settings.model_name,
@@ -110,13 +113,23 @@ def create_app(service: EmbeddingService | None = None) -> FastAPI:
                 model=settings.model_name,
                 modality=modality,
                 batch_size=len(items),
-                inference_latency_ms=round((time.monotonic() - started) * 1000, 2),
+                queue_wait_ms=queue_wait_ms,
+                inference_ms=inference_ms,
+                total_ms=round((time.monotonic() - started) * 1000, 2),
+                inference_latency_ms=inference_ms,
                 total_latency_ms=round((time.monotonic() - started) * 1000, 2),
                 http_status=200,
             )
             return JSONResponse(result)
         except ValueError as error:
-            _log("request_error", request_id=request_id, endpoint="/v1/embeddings", http_status=400)
+            _log(
+                "request_error",
+                request_id=request_id,
+                endpoint="/v1/embeddings",
+                error_type=type(error).__name__,
+                total_ms=round((time.monotonic() - started) * 1000, 2),
+                http_status=400,
+            )
             return JSONResponse(
                 {
                     "error": {"type": "invalid_request_error", "message": str(error)},
@@ -125,7 +138,14 @@ def create_app(service: EmbeddingService | None = None) -> FastAPI:
                 status_code=400,
             )
         except RuntimeError as error:
-            _log("request_error", request_id=request_id, endpoint="/v1/embeddings", http_status=503)
+            _log(
+                "request_error",
+                request_id=request_id,
+                endpoint="/v1/embeddings",
+                error_type=type(error).__name__,
+                total_ms=round((time.monotonic() - started) * 1000, 2),
+                http_status=503,
+            )
             return JSONResponse(
                 {
                     "error": {"type": "model_not_ready", "message": str(error)},
@@ -133,7 +153,15 @@ def create_app(service: EmbeddingService | None = None) -> FastAPI:
                 },
                 status_code=503,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001
+            _log(
+                "request_error",
+                request_id=request_id,
+                endpoint="/v1/embeddings",
+                error_type=type(error).__name__,
+                total_ms=round((time.monotonic() - started) * 1000, 2),
+                http_status=500,
+            )
             LOGGER.exception("embedding request failed")
             return JSONResponse(
                 {

@@ -26,7 +26,7 @@ class FakeEmbeddingService(EmbeddingService):
     async def encode(self, items, input_type):
         assert input_type in {"query", "document"}
         value = 1.0 / math.sqrt(768)
-        return [[value] * 768 for _ in items]
+        return [[value] * 768 for _ in items], 0.01, 0.02
 
 
 def image_data_url() -> str:

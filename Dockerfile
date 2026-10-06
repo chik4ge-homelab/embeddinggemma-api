@@ -27,4 +27,4 @@ COPY embeddinggemma_api /app/embeddinggemma_api
 
 USER 10001:10001
 EXPOSE 8080
-ENTRYPOINT ["uvicorn", "embeddinggemma_api.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+ENTRYPOINT ["uvicorn", "embeddinggemma_api.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--no-access-log"]

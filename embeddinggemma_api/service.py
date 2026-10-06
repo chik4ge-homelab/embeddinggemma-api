@@ -149,6 +149,15 @@ class EmbeddingService:
             raise RuntimeError("model returned an unnormalized embedding")
         return matrix.tolist()
 
-    async def encode(self, items: list[InputItem], input_type: str) -> list[list[float]]:
+    async def encode(
+        self, items: list[InputItem], input_type: str
+    ) -> tuple[list[list[float]], float, float]:
+        queued_at = time.monotonic()
         async with self._semaphore:
-            return await asyncio.to_thread(self._encode_sync, items, input_type)
+            inference_started = time.monotonic()
+            vectors = await asyncio.to_thread(self._encode_sync, items, input_type)
+        return (
+            vectors,
+            round((inference_started - queued_at) * 1000, 2),
+            round((time.monotonic() - inference_started) * 1000, 2),
+        )
