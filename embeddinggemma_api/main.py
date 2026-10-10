@@ -4,13 +4,15 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .config import Settings
-from .service import EmbeddingService, parse_input
+
+if TYPE_CHECKING:
+    from .service import EmbeddingService
 
 LOGGER = logging.getLogger("embeddinggemma_api")
 
@@ -27,6 +29,8 @@ def _request_id(request: Request) -> str:
 
 
 def create_app(service: EmbeddingService | None = None) -> FastAPI:
+    from .service import EmbeddingService, parse_input
+
     settings = service.settings if service is not None else Settings.from_env()
     embedding_service = service or EmbeddingService(settings)
 
@@ -178,4 +182,14 @@ def create_app(service: EmbeddingService | None = None) -> FastAPI:
     return application
 
 
-app = create_app()
+def _create_configured_app() -> FastAPI:
+    import os
+
+    if os.environ.get("EMBEDDING_BACKEND") == "llama.cpp":
+        from .llama_proxy import create_app as create_llama_proxy_app
+
+        return create_llama_proxy_app()
+    return create_app()
+
+
+app = _create_configured_app()
