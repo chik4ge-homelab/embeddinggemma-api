@@ -76,6 +76,12 @@ class EmbeddingService:
         self.loaded_at: float | None = None
         self._semaphore = asyncio.Semaphore(max(1, settings.max_concurrency))
 
+    @property
+    def execution_device(self) -> str:
+        if self.model is None:
+            return self.settings.model_device
+        return str(getattr(self.model, "device", self.settings.model_device))
+
     def load(self) -> None:
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
         os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
@@ -84,11 +90,13 @@ class EmbeddingService:
             torch.set_num_interop_threads(max(1, min(self.settings.torch_threads, 4)))
         except RuntimeError:
             pass
+        if self.settings.model_device.startswith("xpu") and not torch.xpu.is_available():
+            raise RuntimeError("MODEL_DEVICE requests Intel XPU but torch.xpu.is_available() is false")
         model = SentenceTransformer(
             self.settings.model_path,
             config_kwargs={"audio_config": None},
             model_kwargs={"torch_dtype": torch.float32},
-            device="cpu",
+            device=self.settings.model_device,
         )
         dimension = model.get_sentence_embedding_dimension()
         if dimension != 768:

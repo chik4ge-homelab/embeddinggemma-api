@@ -13,6 +13,7 @@ class Settings:
     model_name: str = "embeddinggemma-2"
     model_hub_repo: str = "google/embeddinggemma-2"
     model_revision: str = "914f7f89142e33e77833254d9c9b90c3cef7303b"
+    model_device: str = "cpu"
     torch_threads: int = 2
     max_concurrency: int = 1
     max_image_bytes: int = 64 * 1024 * 1024
@@ -24,6 +25,7 @@ class Settings:
             model_name=os.environ.get("MODEL_NAME", cls.model_name),
             model_hub_repo=os.environ.get("MODEL_HUB_REPO", cls.model_hub_repo),
             model_revision=os.environ.get("MODEL_REVISION", cls.model_revision),
+            model_device=os.environ.get("MODEL_DEVICE", cls.model_device),
             torch_threads=_int("TORCH_NUM_THREADS", cls.torch_threads),
             max_concurrency=_int("MAX_CONCURRENCY", cls.max_concurrency),
             max_image_bytes=_int("MAX_IMAGE_BYTES", cls.max_image_bytes),

@@ -44,6 +44,7 @@ def create_app(service: EmbeddingService | None = None) -> FastAPI:
             model=settings.model_name,
             model_repo=settings.model_hub_repo,
             model_revision=settings.model_revision,
+            device=embedding_service.execution_device,
             ready=embedding_service.ready,
         )
         yield
@@ -66,7 +67,9 @@ def create_app(service: EmbeddingService | None = None) -> FastAPI:
                 {"status": "not_ready", "reason": current.load_error or "model_not_loaded"},
                 status_code=503,
             )
-        return JSONResponse({"status": "ready", "dimension": 768})
+        return JSONResponse(
+            {"status": "ready", "dimension": 768, "device": current.execution_device}
+        )
 
     @application.get("/v1/models")
     async def models() -> dict[str, Any]:
@@ -113,6 +116,7 @@ def create_app(service: EmbeddingService | None = None) -> FastAPI:
                 model=settings.model_name,
                 modality=modality,
                 batch_size=len(items),
+                device=current.execution_device,
                 queue_wait_ms=queue_wait_ms,
                 inference_ms=inference_ms,
                 total_ms=round((time.monotonic() - started) * 1000, 2),

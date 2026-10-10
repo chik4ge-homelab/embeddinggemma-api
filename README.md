@@ -1,10 +1,19 @@
 # embeddinggemma-api
 
-This repository provides a generic, CPU-only embedding service for Google's
+This repository provides a generic multimodal embedding service for Google's
 EmbeddingGemma 2. It is deliberately unaware of Immich and exposes no
-Immich-specific `/predict` contract.
+Immich-specific `/predict` contract. The image uses the PyTorch XPU wheels and
+can run on CPU or an Intel GPU.
 
 ## Runtime choice
+
+`MODEL_DEVICE` selects `cpu` or `xpu`; it defaults to `cpu` for local use. The
+Kubernetes deployment sets it to `xpu`. When XPU is requested, startup fails
+instead of silently falling back to CPU if PyTorch cannot initialize an Intel
+GPU. The ready endpoint and request logs report the selected device.
+
+Inference uses FP32 and the official Sentence Transformers integration. Audio
+is disabled with `audio_config=None`; text and image encoders remain active.
 
 The service uses the official Sentence Transformers integration for the
 current cluster. Current vLLM main/nightly includes an
@@ -12,19 +21,21 @@ current cluster. Current vLLM main/nightly includes an
 as a candidate, so the older claim that vLLM does not support EmbeddingGemma 2
 is no longer correct. The candidate image
 `vllm/vllm-openai-cpu:nightly-x86_64` exited with code 132 (SIGILL) before
-binding its HTTP port on this cluster: every worker node exposes only
 x86-64-v2-era CPU flags and no AVX2/AVX512, while the official vLLM CPU build
-requires AVX2 at minimum. Stock vLLM is therefore not deployable on these
-nodes, and this service remains the selected implementation until the CPU
-ISA or execution environment changes. It loads
+requires AVX2 at minimum. Stock vLLM CPU is therefore not deployable on these
+nodes, so this service remains the selected implementation. It loads
 `google/embeddinggemma-2` at the pinned revision
 `914f7f89142e33e77833254d9c9b90c3cef7303b` with:
 
 - `sentence-transformers==6.1.0`
 - `transformers==5.19.0`
-- CPU `torch==2.14.0` and `torchvision==0.29.1`
-- `torch.float32` on CPU; FP16 is intentionally not used
+- XPU `torch==2.14.0` and `torchvision==0.29.1`
+- `torch.float32`; FP16 is intentionally not used
 - `audio_config=None`, leaving text and image encoders active
+
+PyTorch XPU is being evaluated on the cluster's 12th-generation Intel iGPU.
+This GPU generation is not listed among the hardware validated in the current
+PyTorch XPU guide, so compatibility depends on the live inference check.
 
 The native model output is 768 dimensions. The service validates finite values
 and unit L2 norm before returning them.
