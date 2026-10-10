@@ -36,6 +36,9 @@ nodes, so this service remains the selected implementation. It loads
 PyTorch XPU is being evaluated on the cluster's 12th-generation Intel iGPU.
 This GPU generation is not listed among the hardware validated in the current
 PyTorch XPU guide, so compatibility depends on the live inference check.
+The runtime image bundles the Intel Level Zero loader and compute driver
+userspace libraries; the Talos worker supplies the i915 kernel driver and
+firmware, while the Kubernetes device plugin passes the allocated DRM device.
 
 The native model output is 768 dimensions. The service validates finite values
 and unit L2 norm before returning them.
