@@ -1,0 +1,52 @@
+name: Publish llama.cpp SYCL image
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/publish-llama-sycl.yml
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ggml-org/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push llama.cpp with EmbeddingGemma-2 support
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: https://github.com/ggml-org/llama.cpp.git#4fbc76dec51d0add466f0210855c0596589b60d4
+          file: .devops/intel.Dockerfile
+          target: server
+          push: true
+          tags: ghcr.io/${{ github.repository }}:llama-sycl-gemma-embedding2-4fbc76d
+          build-args: |
+            APP_REVISION=4fbc76dec51d0add466f0210855c0596589b60d4
+          cache-from: type=gha,scope=llama-sycl-gemma-embedding2
+          cache-to: type=gha,mode=max,scope=llama-sycl-gemma-embedding2
+
+      - name: Report image digest
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: echo "$DIGEST"
