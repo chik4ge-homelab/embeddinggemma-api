@@ -105,9 +105,7 @@ def _warmup_image_url() -> str:
     width = WARMUP_IMAGE_SIZE
     height = WARMUP_IMAGE_SIZE
     row = b"\x00" + bytes(
-        channel
-        for x in range(width)
-        for channel in (x % 256, (x * 3) % 256, (x * 7) % 256)
+        channel for x in range(width) for channel in (x % 256, (x * 3) % 256, (x * 7) % 256)
     )
     png = (
         b"\x89PNG\r\n\x1a\n"
@@ -120,15 +118,22 @@ def _warmup_image_url() -> str:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     current_settings = settings or Settings.from_env()
-    server_url = os.environ.get("LLAMA_SERVER_URL", "http://127.0.0.1:8081").rstrip("/")
+    image_server_url = os.environ.get(
+        "LLAMA_IMAGE_SERVER_URL",
+        os.environ.get("LLAMA_SERVER_URL", "http://127.0.0.1:8081"),
+    ).rstrip("/")
+    configured_text_server_url = os.environ.get("LLAMA_TEXT_SERVER_URL")
+    text_server_url = (configured_text_server_url or image_server_url).rstrip("/")
     device = os.environ.get("LLAMA_DEVICE", "SYCL0")
-    semaphore = asyncio.Semaphore(max(1, current_settings.max_concurrency))
+    text_device = os.environ.get(
+        "LLAMA_TEXT_DEVICE", "CPU" if configured_text_server_url else device
+    )
+    image_semaphore = asyncio.Semaphore(max(1, current_settings.max_concurrency))
+    text_semaphore = asyncio.Semaphore(max(1, current_settings.max_concurrency))
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
-        client = httpx.AsyncClient(
-            timeout=httpx.Timeout(600.0, connect=10.0)
-        )
+        client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0))
         application.state.llama_client = client
         application.state.image_warmup_complete = False
 
@@ -145,10 +150,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
             while True:
                 try:
-                    health = await client.get(f"{server_url}/health")
+                    health = await client.get(f"{image_server_url}/health")
                     if health.status_code == 200:
                         response = await client.post(
-                            f"{server_url}/v1/embeddings",
+                            f"{image_server_url}/v1/embeddings",
                             json={
                                 "model": current_settings.model_name,
                                 "input": [image_input],
@@ -207,16 +212,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @application.get("/health/ready")
     async def ready(request: Request) -> JSONResponse:
         try:
-            response = await request.app.state.llama_client.get(f"{server_url}/health")
-        except httpx.HTTPError:
-            response = None
-        if response is None or response.status_code != 200:
-            return JSONResponse({"status": "not_ready"}, status_code=503)
-        if not request.app.state.image_warmup_complete:
-            return JSONResponse(
-                {"status": "not_ready", "reason": "image_warmup"}, status_code=503
+            image_health, text_health = await asyncio.gather(
+                request.app.state.llama_client.get(f"{image_server_url}/health"),
+                request.app.state.llama_client.get(f"{text_server_url}/health"),
             )
-        return JSONResponse({"status": "ready", "dimension": 768, "device": device})
+        except httpx.HTTPError:
+            image_health = text_health = None
+        if (
+            image_health is None
+            or text_health is None
+            or image_health.status_code != 200
+            or text_health.status_code != 200
+        ):
+            return JSONResponse(
+                {"status": "not_ready", "reason": "backend_health"}, status_code=503
+            )
+        if not request.app.state.image_warmup_complete:
+            return JSONResponse({"status": "not_ready", "reason": "image_warmup"}, status_code=503)
+        return JSONResponse(
+            {
+                "status": "ready",
+                "dimension": 768,
+                "device": device,
+                "text_device": text_device,
+            }
+        )
 
     @application.get("/v1/models")
     async def models() -> dict[str, Any]:
@@ -251,12 +271,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=400,
             )
 
+        has_image = any(isinstance(item, dict) for item in items)
+        target_server_url = image_server_url if has_image else text_server_url
+        target_device = device if has_image else text_device
+        target_semaphore = image_semaphore if has_image else text_semaphore
         queued_at = time.monotonic()
-        async with semaphore:
+        async with target_semaphore:
             inference_started = time.monotonic()
             try:
                 response = await request.app.state.llama_client.post(
-                    f"{server_url}/v1/embeddings",
+                    f"{target_server_url}/v1/embeddings",
                     json={"model": current_settings.model_name, "input": items},
                 )
                 response.raise_for_status()
@@ -271,7 +295,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     http_status=503,
                 )
                 return JSONResponse(
-                    {"error": {"type": "backend_unavailable", "message": "llama.cpp request failed"}},
+                    {
+                        "error": {
+                            "type": "backend_unavailable",
+                            "message": "llama.cpp request failed",
+                        }
+                    },
                     status_code=503,
                 )
             except (KeyError, TypeError, ValueError, RuntimeError) as error:
@@ -299,7 +328,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "usage": {"prompt_tokens": 0, "total_tokens": 0},
         }
         has_text = any(isinstance(item, str) for item in items)
-        has_image = any(isinstance(item, dict) for item in items)
         _log(
             "request_complete",
             request_id=request_id,
@@ -307,7 +335,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             model=current_settings.model_name,
             modality="mixed" if has_text and has_image else "image" if has_image else "text",
             batch_size=len(items),
-            device=device,
+            device=target_device,
             queue_wait_ms=round((inference_started - queued_at) * 1000, 2),
             inference_ms=round((time.monotonic() - inference_started) * 1000, 2),
             total_ms=elapsed_ms,
