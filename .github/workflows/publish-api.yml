@@ -7,10 +7,12 @@ on:
       - main
     paths:
       - .github/workflows/publish-api.yml
-      - Dockerfile
-      - embeddinggemma_api/**
-      - pyproject.toml
-      - uv.lock
+      - Dockerfile.runtime-overlay
+      - embeddinggemma_api/llama_proxy.py
+
+concurrency:
+  group: embeddinggemma-api-publish
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -37,7 +39,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: Dockerfile.runtime-overlay
           push: true
           tags: ghcr.io/${{ github.repository }}:api-${{ github.sha }}
           cache-from: type=gha,scope=embeddinggemma-api

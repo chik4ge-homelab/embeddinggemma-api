@@ -1,0 +1,6 @@
+FROM ghcr.io/chik4ge-homelab/embeddinggemma-api@sha256:351c88bc401242ce6064d360034bd9c242c21bf4984ce16b3681a1f2571f305e
+
+WORKDIR /app
+COPY --chown=10001:10001 embeddinggemma_api/llama_proxy.py /app/embeddinggemma_api/llama_proxy.py
+
+USER 10001:10001
