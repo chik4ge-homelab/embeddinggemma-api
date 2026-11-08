@@ -2,12 +2,14 @@ FROM python:3.12-slim@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b
 
 RUN python -m pip install --no-cache-dir "uv==0.12.23"
 
-FROM ghcr.io/chik4ge-homelab/embeddinggemma-api@sha256:351c88bc401242ce6064d360034bd9c242c21bf4984ce16b3681a1f2571f305e AS runtime
+FROM openvino/ubuntu24_dev@sha256:7512312434bd33892ce04b9bda86ffa94805fb35b7673b44b4f0cfe29917a91a AS runtime
 
 COPY --from=uv-builder /usr/local/bin/uv /usr/local/bin/uv
 
 USER root
-RUN /usr/local/bin/uv pip install --python /opt/venv/bin/python --no-cache openvino==2026.4.1
+RUN /usr/local/bin/uv pip install --python /opt/venv/bin/python --no-cache --no-deps \
+    pillow==11.3.0 \
+    tokenizers==0.23.2
 
 WORKDIR /app
 COPY --chown=10001:10001 embeddinggemma_api/openvino_server.py /app/embeddinggemma_api/openvino_server.py
