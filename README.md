@@ -36,6 +36,14 @@ inputs available.
 The native model output is 768 dimensions. The service validates finite values
 and unit L2 norm before returning them.
 
+## OpenVINO runtime
+
+`Dockerfile.openvino` publishes a compatible API image using OpenVINO 2026.4.1.
+It runs the same text and image API through one Intel GPU backend, using the
+FP16 OpenVINO conversion of `wesjos/embeddinggemma-2-openvino`. The runtime
+expects the model directory at `MODEL_ROOT` and defaults to an image token
+budget of 256. CUDA is not used.
+
 ## API
 
 `POST /v1/embeddings` accepts the normal text shape:
