@@ -6,7 +6,9 @@ import json
 import logging
 import math
 import os
+import struct
 import time
+import zlib
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -19,6 +21,7 @@ from .config import Settings
 LOGGER = logging.getLogger("embeddinggemma_api")
 QUERY_PREFIX = "task: search result | query: "
 DOCUMENT_PREFIX = "title: none | text: "
+WARMUP_IMAGE_SIZE = 768
 
 
 def _log(event: str, **fields: Any) -> None:
@@ -89,6 +92,32 @@ def _normalized_embeddings(payload: dict[str, Any], expected_count: int) -> list
     return vectors
 
 
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(data))
+        + kind
+        + data
+        + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    )
+
+
+def _warmup_image_url() -> str:
+    width = WARMUP_IMAGE_SIZE
+    height = WARMUP_IMAGE_SIZE
+    row = b"\x00" + bytes(
+        channel
+        for x in range(width)
+        for channel in (x % 256, (x * 3) % 256, (x * 7) % 256)
+    )
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + _png_chunk(b"IDAT", zlib.compress(row * height))
+        + _png_chunk(b"IEND", b"")
+    )
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     current_settings = settings or Settings.from_env()
     server_url = os.environ.get("LLAMA_SERVER_URL", "http://127.0.0.1:8081").rstrip("/")
@@ -97,11 +126,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
-        application.state.llama_client = httpx.AsyncClient(
+        client = httpx.AsyncClient(
             timeout=httpx.Timeout(600.0, connect=10.0)
         )
-        yield
-        await application.state.llama_client.aclose()
+        application.state.llama_client = client
+        application.state.image_warmup_complete = False
+
+        async def warm_image_encoder() -> None:
+            started = time.monotonic()
+            last_retry_log = started
+            image_input = {
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": _warmup_image_url()},
+                    }
+                ]
+            }
+            while True:
+                try:
+                    health = await client.get(f"{server_url}/health")
+                    if health.status_code == 200:
+                        response = await client.post(
+                            f"{server_url}/v1/embeddings",
+                            json={
+                                "model": current_settings.model_name,
+                                "input": [image_input],
+                            },
+                        )
+                        response.raise_for_status()
+                        _normalized_embeddings(response.json(), 1)
+                        application.state.image_warmup_complete = True
+                        _log(
+                            "image_warmup_complete",
+                            device=device,
+                            elapsed_ms=round((time.monotonic() - started) * 1000, 2),
+                        )
+                        return
+                except httpx.HTTPError as error:
+                    now = time.monotonic()
+                    if now - last_retry_log >= 30:
+                        _log(
+                            "image_warmup_retry",
+                            error_type=type(error).__name__,
+                            device=device,
+                        )
+                        last_retry_log = now
+                except (KeyError, TypeError, ValueError, RuntimeError) as error:
+                    now = time.monotonic()
+                    if now - last_retry_log >= 30:
+                        _log(
+                            "image_warmup_retry",
+                            error_type=type(error).__name__,
+                            device=device,
+                        )
+                        last_retry_log = now
+                await asyncio.sleep(2)
+
+        warmup_task = asyncio.create_task(warm_image_encoder())
+        try:
+            yield
+        finally:
+            warmup_task.cancel()
+            try:
+                await warmup_task
+            except asyncio.CancelledError:
+                pass
+            await client.aclose()
 
     application = FastAPI(title="EmbeddingGemma API", lifespan=lifespan)
 
@@ -121,6 +212,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response = None
         if response is None or response.status_code != 200:
             return JSONResponse({"status": "not_ready"}, status_code=503)
+        if not request.app.state.image_warmup_complete:
+            return JSONResponse(
+                {"status": "not_ready", "reason": "image_warmup"}, status_code=503
+            )
         return JSONResponse({"status": "ready", "dimension": 768, "device": device})
 
     @application.get("/v1/models")
