@@ -25,10 +25,10 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl; \
     mkdir -p /tmp/intel-xpu-runtime; \
-    curl -fSL "https://github.com/intel/compute-runtime/releases/download/${INTEL_COMPUTE_RUNTIME_VERSION}/libze-intel-gpu1_${INTEL_COMPUTE_RUNTIME_VERSION}-0_amd64.deb" -o /tmp/intel-xpu-runtime/libze-intel-gpu1.deb; \
-    curl -fSL "https://github.com/intel/compute-runtime/releases/download/${INTEL_COMPUTE_RUNTIME_VERSION}/libigdgmm12_22.10.0_amd64.deb" -o /tmp/intel-xpu-runtime/libigdgmm12.deb; \
-    curl -fSL "https://github.com/intel/intel-graphics-compiler/releases/download/v${INTEL_IGC_VERSION}/intel-igc-core-2_${INTEL_IGC_VERSION}+${INTEL_IGC_BUILD}_amd64.deb" -o /tmp/intel-xpu-runtime/intel-igc-core-2.deb; \
-    curl -fSL "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze1_${LEVEL_ZERO_VERSION}%2Bu24.04_amd64.deb" -o /tmp/intel-xpu-runtime/libze1.deb; \
+    curl --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 30 --max-time 600 -fSL "https://github.com/intel/compute-runtime/releases/download/${INTEL_COMPUTE_RUNTIME_VERSION}/libze-intel-gpu1_${INTEL_COMPUTE_RUNTIME_VERSION}-0_amd64.deb" -o /tmp/intel-xpu-runtime/libze-intel-gpu1.deb; \
+    curl --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 30 --max-time 600 -fSL "https://github.com/intel/compute-runtime/releases/download/${INTEL_COMPUTE_RUNTIME_VERSION}/libigdgmm12_22.10.0_amd64.deb" -o /tmp/intel-xpu-runtime/libigdgmm12.deb; \
+    curl --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 30 --max-time 600 -fSL "https://github.com/intel/intel-graphics-compiler/releases/download/v${INTEL_IGC_VERSION}/intel-igc-core-2_${INTEL_IGC_VERSION}+${INTEL_IGC_BUILD}_amd64.deb" -o /tmp/intel-xpu-runtime/intel-igc-core-2.deb; \
+    curl --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 30 --max-time 600 -fSL "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze1_${LEVEL_ZERO_VERSION}%2Bu24.04_amd64.deb" -o /tmp/intel-xpu-runtime/libze1.deb; \
     echo "8bef9f24e03f826f93c076081bda13c6ac3afbd9e42b9fb8f298fab652330e2f  /tmp/intel-xpu-runtime/libze-intel-gpu1.deb" | sha256sum -c -; \
     echo "6031a63d6e8a12ce61c14efc15f2c8e727061286e3820b8594e6d00615e04d54  /tmp/intel-xpu-runtime/libigdgmm12.deb" | sha256sum -c -; \
     echo "9e0975ac75015b431ebb2da81a802b9fd1e28a3c270313a97569cd1e6a6c6048  /tmp/intel-xpu-runtime/intel-igc-core-2.deb" | sha256sum -c -; \
